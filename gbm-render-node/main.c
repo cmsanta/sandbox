@@ -78,14 +78,11 @@ GLuint gvColorAttribHandle;
 GLuint gvTexturePositionHandle;
 GLuint gvTextureTexCoordsHandle;
 GLuint gvTextureSamplerHandle;
-GLuint gTexture;
 GLuint gBufferTexture;
 GLuint gFbo;
 GLuint intermediateFBO;
 // create a color attachment texture
 unsigned int screenTexture;
-
-#define _TEXTURE 1
 
 static int setupGraphics(int w, int h, int flip) {
     gProgram = createProgram(gVertexShader, gFragmentShader);
@@ -121,34 +118,6 @@ static int setupGraphics(int w, int h, int flip) {
     checkGlError("glGetUniformLocation");
     printf("glGetUniformLocation(\"texture\") = %d\n",
             gvTextureSamplerHandle);
-
-    glActiveTexture(GL_TEXTURE0);
-    checkGlError("glActiveTexture");
-    glGenTextures(1, &gTexture);
-    glBindTexture(GL_TEXTURE_2D, gTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-#if 0
-    glGenTextures(1, &gBufferTexture);
-    glBindTexture(GL_TEXTURE_2D, gBufferTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    glGenFramebuffers(1, &gFbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, gFbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gTexture, 0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        printf("ERROR::FRAMEBUFFER:: Render framebuffer is not complete!\n");
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-#endif
 
     glGenFramebuffers(1, &intermediateFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, intermediateFBO);
@@ -221,19 +190,6 @@ static void render_stuff(int width, int height)
     checkGlError("glEnableVertexAttribArray");
     glDrawArrays(GL_TRIANGLES, 0, 3);
     checkGlError("glDrawArrays");
-
-#if 0
-    // Copy content of FBO into a texture
-    glBindTexture(GL_TEXTURE_2D, gBufferTexture);
-    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
-    checkGlError("glCopyTexSubImage2D");
-#endif
-
-#if 0
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, gFbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, intermediateFBO);
-    glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-#endif
 
     // Back to the display
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
