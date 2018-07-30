@@ -32,7 +32,7 @@
 #define MI_STORE_DATA_IMM (0x20 << 23)
 #define TIMESTAMP_REGISTER_LOW 0x02358 //TODO: this is the render register. Need to extend to all engines?
 
-#define WATCHDOG_THRESHOLD (50 * 1000) //ms
+#define WATCHDOG_THRESHOLD (100 * 1000) //ms
 
 #define MAX_ENGINES 5
 
@@ -71,26 +71,26 @@ static void get_watchdog_count(uint32_t fd, const struct intel_execution_engine 
             if (!engine)
                 igt_assert_f(0, "Invalid Engine pointer.");
 
-            if (strcmp(engine->name, "rcs0") == 0)
+            if (strcmp(engine->name, "render") == 0)
                 if (sscanf(line, "rcs0" " = %d", count))
                     goto found;
 
-            if (strcmp(engine->name, "vcs0") == 0)
-                if (sscanf(line, "vcs0" " = %d", count))
-                    goto found;
-
-            if (strcmp(engine->name, "vcs1") == 0)
-                if (sscanf(line, "vcs1" " = %d", count))
-                    goto found;
-
-            if (strcmp(engine->name, "bcs0") == 0)
+            if (strcmp(engine->name, "bsd") == 0)
                 if (sscanf(line, "bcs0" " = %d", count))
                     goto found;
 
-            if (strcmp(engine->name, "vecs0") == 0)
+            if (strcmp(engine->name, "bsd1") == 0)
+                if (sscanf(line, "vcs0" " = %d", count))
+                    goto found;
+
+            if (strcmp(engine->name, "bsd2") == 0)
+                if (sscanf(line, "vcs1" " = %d", count))
+                    goto found;
+
+            if (strcmp(engine->name, "vebox") == 0)
                 if (sscanf(line, "vecs0" " = %d", count))
                     goto found;
-        }
+	}
     }
 
     igt_assert_f(0, "Reset entry not found.");
@@ -183,40 +183,55 @@ static void verify_engines(uint32_t fd)
     }
 }
 
+#define RENDER_CLASS 0
+#define VIDEO_DECODE_CLASS 1
+#define VIDEO_ENHANCEMENT_CLASS 2
+#define COPY_ENGINE_CLASS 3
 static void context_set_watchdog(int fd, int engine_id,
                                  unsigned ctx, unsigned threshold)
 {
     //No need to save/restore the values of the current context since it is
     //just used for the test
-    struct local_i915_gem_context_param param;
+	struct drm_i915_gem_context_param arg = {
+		.param = 0x7,//I915_CONTEXT_PARAM_WATCHDOG
+		.ctx_id = ctx,
+	};
     unsigned engines_threshold[MAX_ENGINES];
+    unsigned *d = NULL;
 
-    memset(&param, 0, sizeof(param));
+    memset(&arg, 0, sizeof(arg));
     memset(&engines_threshold, 0, sizeof(engines_threshold));
-    param.context = ctx;
-    param.value = (uint64_t)&engines_threshold;
-    param.param = LOCAL_CONTEXT_PARAM_WATCHDOG;
+
+    arg.ctx_id = ctx;
+    arg.value = (uint64_t)&engines_threshold;
+    arg.param = 0x7;//I915_CONTEXT_PARAM_WATCHDOG
 
     /* read existing values */
-    gem_context_get_param(fd, &param);
-    igt_assert_eq(param.size, sizeof(engines_threshold));
+    gem_context_get_param(fd, &arg);
+    printf("before set(): arg.ctx_id:%u, arg.size: %u, arg.param: 0x%x, arg.value: 0x%x \n",arg.ctx_id, arg.size, arg.param, arg.value);
+    //igt_assert_eq(arg.size, sizeof(engines_threshold));
                //"more engines defined in i915, time to update i-g-t\n");
 
     switch (engine_id) {
     case I915_EXEC_RENDER:
-         engines_threshold[0] = threshold;
+         engines_threshold[RENDER_CLASS] = threshold;
          break;
     case I915_EXEC_BSD:
-         engines_threshold[2] = threshold;
+         engines_threshold[VIDEO_DECODE_CLASS] = threshold;
          break;
     case I915_EXEC_VEBOX:
-         engines_threshold[4] = threshold;
+         engines_threshold[VIDEO_ENHANCEMENT_CLASS] = threshold;
          break;
     default:
         break;
     }
 
-    gem_context_set_param(fd, &param);
+    gem_context_set_param(fd, &arg);
+    gem_context_get_param(fd, &arg);
+    d = arg.value;
+    printf("after set(): engine_threshold[RENDER_CLASS]: %d \n", *(d+0));
+    printf("after set(): engine_threshold[VIDEO_CLASS]: %d \n", *(d+1));
+    printf("after set(): engine_threshold[VIDEO_ENHACEMENT_CLASS]: %d \n", *(d+2));
 }
 
 static float get_timestamp_freq(uint32_t fd)
@@ -384,9 +399,9 @@ static void inject_hang(uint32_t fd, uint32_t ctx, const struct intel_execution_
 {
     int64_t timeout = HANG_TIMEOUT;
     igt_hang_t hang;
-    hang = igt_hang_ctx(fd, ctx, engine->exec_id | engine->flags, flags, NULL);
+    hang = igt_hang_ctx(fd, ctx, engine->exec_id | engine->flags, flags);
 
-    if(gem_wait(fd, hang.handle, &timeout) != 0) {
+    if(gem_wait(fd, engine->exec_id, &timeout) != 0) {
         //Force reset and fail the test
         igt_force_gpu_reset(fd);
         igt_assert_f(0, "Bad batch did not hang in the expected timeframe!");
@@ -396,9 +411,9 @@ static void inject_hang(uint32_t fd, uint32_t ctx, const struct intel_execution_
 static void inject_hang_no_wait(uint32_t fd, uint32_t ctx, const struct intel_execution_engine *engine, unsigned flags, uint32_t *handle)
 {
     igt_hang_t hang;
-    hang = igt_hang_ctx(fd, ctx, engine->exec_id | engine->flags, flags, NULL);
+    hang = igt_hang_ctx(fd, ctx, engine->exec_id | engine->flags, flags);
 
-    *handle = hang.handle;
+    //*handle = hang.handle;
 }
 
 static void inject_hang_dependent(uint32_t fd, uint32_t ctx, const struct intel_execution_engine *engine, unsigned flags, uint32_t *handle, uint32_t target)
