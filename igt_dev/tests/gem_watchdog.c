@@ -32,7 +32,7 @@
 #define MI_STORE_DATA_IMM (0x20 << 23)
 #define TIMESTAMP_REGISTER_LOW 0x02358 //TODO: this is the render register. Need to extend to all engines?
 
-#define WATCHDOG_THRESHOLD (100 * 1000) //ms
+#define WATCHDOG_THRESHOLD (100) //ms
 
 #define MAX_ENGINES 5
 
@@ -46,6 +46,42 @@ static bool is_guc_submission(uint32_t fd)
 	return igt_sysfs_get_boolean(dir, "enable_guc_submission");
 }
 
+static void clear_error_state(int fd)
+{
+	int dir;
+
+	dir = igt_sysfs_open(fd, NULL);
+	if (dir < 0)
+		return;
+
+	/* Any write to the error state clears it */
+	igt_sysfs_set(dir, "error", "");
+	close(dir);
+}
+
+static bool check_error_state(int fd)
+{
+	char *error, *str;
+	bool found = false;
+	int dir;
+
+	dir = igt_sysfs_open(fd, NULL);
+
+	error = igt_sysfs_get(dir, "error");
+	igt_sysfs_set(dir, "error", "Begone!");
+
+	igt_assert(error);
+	igt_debug("Error: %s\n", error);
+
+	if (str = strstr(error, "GPU HANG")) {
+		igt_debug("Found error state! GPU hang triggered! %s\n", str);
+		found = true;
+	}
+
+	close(dir);
+
+	return found;
+}
 static void get_watchdog_count(uint32_t fd, const struct intel_execution_engine *engine, uint32_t *count)
 {
     int dfs_fd;
@@ -401,11 +437,15 @@ static void inject_hang(uint32_t fd, uint32_t ctx, const struct intel_execution_
     igt_hang_t hang;
     hang = igt_hang_ctx(fd, ctx, engine->exec_id | engine->flags, flags);
 
+     gem_sync(fd, hang.spin->handle);
+
+/*
     if(gem_wait(fd, engine->exec_id, &timeout) != 0) {
         //Force reset and fail the test
-        igt_force_gpu_reset(fd);
-        igt_assert_f(0, "Bad batch did not hang in the expected timeframe!");
+        //igt_force_gpu_reset(fd);
+        //igt_assert_f(0, "Bad batch did not hang in the expected timeframe!");
     }
+*/
 }
 
 static void inject_hang_no_wait(uint32_t fd, uint32_t ctx, const struct intel_execution_engine *engine, unsigned flags, uint32_t *handle)
@@ -485,56 +525,38 @@ static void inject_hang_dependent(uint32_t fd, uint32_t ctx, const struct intel_
 */
 }
 
-static void media_hang_simple(const struct intel_execution_engine *engine)
+static void media_hang_simple(int fd, const struct intel_execution_engine *engine)
 {
-    uint32_t fd;
-    uint32_t ctx;
-    unsigned flags = 0;
+	uint32_t ctx;
+	unsigned flags = 0;
 
-    const uint32_t expected_resets = 1;
-    uint32_t watchdog_count, watchdog_count_init;
-    uint32_t watchdog_delta;
+	//make sure the engine exists
+	gem_require_ring(fd, engine->exec_id | engine->flags);
 
-    fd = drm_open_driver(DRIVER_INTEL);
+	//Make sure engines are working
+	verify_engines(fd);
 
-    //make sure the engine exists
-    gem_require_ring(fd, engine->exec_id | engine->flags);
+	//set context parameter
+	ctx = 0; //Submit on default context
+	context_set_watchdog(fd, engine->exec_id, ctx, WATCHDOG_THRESHOLD);
 
-    //Make sure engines are working
-    verify_engines(fd);
+	clear_error_state(fd);
+	igt_assert(!check_error_state(fd)); //Assert if error state is not clean
 
-    //set context parameter
-    ctx = 0; //Submit on default context
-    context_set_watchdog(fd, engine->exec_id, ctx, WATCHDOG_THRESHOLD);
+	inject_hang(fd, ctx, engine, flags);
+	igt_assert(!check_error_state(fd));
 
-    get_watchdog_count(fd, engine, &watchdog_count_init);
-    inject_hang(fd, ctx, engine, flags);
-    get_watchdog_count(fd, engine, &watchdog_count);
-
-    verify_engines(fd);
-
-    watchdog_delta = watchdog_count - watchdog_count_init;
-    igt_assert_f(watchdog_delta == expected_resets,
-                 "The number of resets is different from what is expected:\n"
-                 "\tDelta: %d\n"
-                 "\tExpected: %d\n",
-                 watchdog_delta,
-                 expected_resets);
-
-    close(fd);
+	verify_engines(fd);
 }
 
-static void media_hang_stress(const struct intel_execution_engine *engine)
+static void media_hang_stress(int fd, const struct intel_execution_engine *engine)
 {
-    uint32_t fd;
     uint32_t ctx;
     unsigned flags = 0;
 
     const uint32_t expected_resets = 10000;
     uint32_t watchdog_count, watchdog_count_init;
     uint32_t watchdog_delta;
-
-    fd = drm_open_driver(DRIVER_INTEL);
 
     //make sure the engine exists
     gem_require_ring(fd, engine->exec_id | engine->flags);
@@ -563,13 +585,10 @@ static void media_hang_stress(const struct intel_execution_engine *engine)
                  "\tExpected: %d\n",
                  watchdog_delta,
                  expected_resets);
-
-    close(fd);
 }
 
-static void media_hang_timed(const struct intel_execution_engine *engine)
+static void media_hang_timed(int fd, const struct intel_execution_engine *engine)
 {
-    uint32_t fd;
     uint32_t ctx;
     unsigned flags = 0;
 
@@ -582,8 +601,6 @@ static void media_hang_timed(const struct intel_execution_engine *engine)
     const uint32_t expected_resets = 1;
     uint32_t watchdog_count, watchdog_count_init;
     uint32_t watchdog_delta;
-
-    fd = drm_open_driver(DRIVER_INTEL);
 
     gem_require_ring(fd, engine->exec_id | engine->flags);
 
@@ -622,12 +639,10 @@ static void media_hang_timed(const struct intel_execution_engine *engine)
     // Normalize and compare with threshold
     igt_assert_f(((exec_time_delta / exec_time_expected) > tolerance) && (exec_time_delta / exec_time_expected < 1), "Reset did not complete within tolerance threshold.");
 
-    close(fd);
 }
 
-static void media_hang_dependency(const struct intel_execution_engine *engine)
+static void media_hang_dependency(int fd, const struct intel_execution_engine *engine)
 {
-    uint32_t fd;
     uint32_t ctx;
     unsigned flags = 0;
 
@@ -640,8 +655,6 @@ static void media_hang_dependency(const struct intel_execution_engine *engine)
     const uint32_t expected_resets = 1;
 
     int64_t timeout = 10 * HANG_TIMEOUT;
-
-    fd = drm_open_driver(DRIVER_INTEL);
 
     //make sure the engine exists
     gem_require_ring(fd, engine->exec_id | engine->flags);
@@ -694,9 +707,8 @@ static void media_hang_dependency(const struct intel_execution_engine *engine)
     verify_engines(fd);
 }
 
-static void all_engines_stress(void)
+static void all_engines_stress(int fd)
 {
-    uint32_t fd;
     uint32_t ctx = 0;
     unsigned flags = 0;
 
@@ -706,8 +718,6 @@ static void all_engines_stress(void)
     uint32_t expected_resets = 0;
     uint32_t watchdog_count, watchdog_count_init;
     uint32_t watchdog_delta;
-
-    fd = drm_open_driver(DRIVER_INTEL);
 
     get_watchdog_count(fd, NULL, &watchdog_count_init);
 
@@ -752,13 +762,18 @@ static void all_engines_stress(void)
                  "\tExpected: %d\n",
                  watchdog_delta,
                  expected_resets);
-
-    close(fd);
 }
 
 igt_main
 {
     igt_skip_on_simulation();
+
+    int fd;
+
+    igt_fixture {
+	    fd = drm_open_driver(DRIVER_INTEL);
+	    igt_require_gem(fd);
+    }
 
     igt_subtest_group {
 
@@ -768,7 +783,7 @@ igt_main
                 continue;
 
             igt_subtest_f("basic-%s", engine->name) {
-                media_hang_simple(engine);
+                media_hang_simple(fd, engine);
             }
 
         }
@@ -782,7 +797,7 @@ igt_main
                 continue;
 
             igt_subtest_f("ctx-stress-%s", engine->name) {
-                media_hang_stress(engine);
+                media_hang_stress(fd, engine);
             }
 
         }
@@ -791,7 +806,7 @@ igt_main
 
     igt_subtest_group {
             igt_subtest_f("multi-ring-stress") {
-                all_engines_stress();
+                all_engines_stress(fd);
             }
 
     }
@@ -803,7 +818,7 @@ igt_main
                 continue;
 
             igt_subtest_f("dependency-%s", engine->name) {
-                media_hang_dependency(engine);
+                media_hang_dependency(fd, engine);
             }
 
         }
@@ -816,8 +831,12 @@ igt_main
             if (engine->exec_id == 0 || engine->exec_id == I915_EXEC_BLT)
                 continue;
             igt_subtest_f("timed-%s", engine->name) {
-                media_hang_timed(engine);
+                media_hang_timed(fd, engine);
             }
         }
     }
+
+     igt_fixture {
+         close(fd);
+     }
 }
