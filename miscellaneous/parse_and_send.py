@@ -132,7 +132,7 @@ pphone_renter.add_run(guest_info[2]).underline = True
 pphone_renter.add_run('\n*This is required')
 
 pdisclaimer = document.add_paragraph()
-pdisclaimer.add_run('Important: the attached form must be completed and given to guards or emailed to FWC Administrator at least 24 hours before anyone is staying at your villa when you are not there.  ').underline = False
+pdisclaimer.add_run('Important: the attached form must be completed and given to guards or emailed to FWC Administrator at least 24 hours before anyone is staying at your villa when you are not there. fairwaycourts@outlook.com ').underline = False
 
 #Save .docx using the guest's name and today's date
 outputFile=str(guest_info[1]).rstrip("\n\r")+str(date)+"-guest.docx"
@@ -168,12 +168,12 @@ def sendemail(email, gmail_password, to, text):
 	    print "Error: Email server error..."
 	return
 
-def composeemail(file_path, file_to_be_attached, email, to, subject_wpacket, body, email_type ):
+def composeemail(file_path, file_to_be_attached, email, to, subject, body, email_type ):
 	try:
 		msg = MIMEMultipart()
 		msg['From'] = email
 		msg['To'] = to
-		msg['Subject'] = subject_wpacket
+		msg['Subject'] = subject
 		msg.attach(MIMEText(body, 'plain'))
 
 		filename = os.path.basename(file_path+file_to_be_attached)
@@ -281,7 +281,6 @@ else:										#752
 	villa_id = str(villas[3])
 	villa_id = re.sub('\n', '', villa_id)
 
-
 if (str(inOption) == str("email")):
 	#Guest Form Email
 	to = ""
@@ -292,16 +291,15 @@ if (str(inOption) == str("email")):
 
 elif (str(inOption) == str("packet")):
 	#Welcome Packet Email
-	#to = guest_info[6]
-	to = ""
+	to = guest_info[6]
 	if ( (str(language) == "English ") or (str(language) == "English US ")):
-		subject_wpacket = "Welcome packet to your villa in Palmas del Mar - FWC #"+villa_id
+		subject = 'Welcome packet to your villa in Palmas del Mar - FWC #'+villa_id
 		body_wpacket = "Dear "+guest_name+":\n\nPlease find in the attachment your welcome packet to your rental. It has a lot of information about how to operate the villa including the access code as well as additional info on the surrounding areas in Palmas del Mar. The "+villa_name+" Beach House villa is located on the second floor within the Fairway Courts complex, unit #"+villa_id+".\n\nCheck in: "+guest_info[4]+"\nCheck out: "+guest_info[5]+"\nLet us know if you have any questions,\n\nCarlos Santa\n469-569-7081"
 	else:
-		subject_wpacket = "Paquete de bienvenida estadia Palmas del Mar - FWC #"+villa_id
+		subject = 'Paquete de bienvenida estadia Palmas del Mar - FWC #'+villa_id
 		body_wpacket = "Saludos "+guest_name+":\n\nEncuentre en el atachado el documento de bienvenida en el complejo Fairway Courts en Palmas del Mar, el numero de la villa  es #"+villa_id+" y se encuentra en el segundo piso. Dentro del documento puede ver  el codigo de acceso a la villa para sacar las llaves de la cajita o lockbox.\n\nFecha de entrada: "+guest_info[4]+"\nFecha de salida: "+guest_info[5]+"\nAdemas del codigo para las llaves el documento contiene valiosa informacion de como operar la villa. Nos deja saber si tiene alguna pregunta.\n\nGracias,\n\nCarlos Santa\n469-569-7081"
 
-	composeemail(file_location, villa_filename, email, to, subject_wpacket, body_wpacket, "Welcome Packet")
+	composeemail(file_location, villa_filename, email, to, subject, body_wpacket, "Welcome Packet")
 
 else:
 	print "Need to pass [email|packet] as a 2nd parameter"
