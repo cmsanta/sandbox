@@ -20,7 +20,7 @@ while read LINE; do
 	then
 		villa=830
 		echo $oneline
-	elif [ `echo $oneline | grep -c "Tortuga Beach House Property" ` -gt 0 ]
+	elif [ `echo $oneline | grep -c "Tortuga Beach Apartment Property" ` -gt 0 ]
 	then
 		villa=826
 	elif [ `echo $oneline | grep -c "Acqualina Beach House Property" ` -gt 0 ]
